@@ -47,7 +47,12 @@ const placeOrder = async (req, res) => {
 
 const getAllOrders = async (req, res) => {
   try {
-    const orders = await Order.find().populate('product');
+    const filter = {};
+    // Allow ?status=shipped or ?status=pending etc
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    const orders = await Order.find(filter).populate('product');
     res.status(200).json({ success: true, orders });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -64,8 +69,99 @@ const getOrderById = async (req, res) => {
   }
 };
 
+const getMyOrders = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const myOrders = await Order.find({ user: userId }).populate('product');
+
+    res.status(200).json({ success: true, orders: myOrders });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch your orders' });
+  }
+};
+
+const updateOrderStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid status value' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+
+    order.status = status;
+    await order.save();
+
+    res.status(200).json({ success: true, order });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+const deleteOrder = async (req, res) => {
+  try {
+    const order = await Order.findByIdAndDelete(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    res.status(200).json({ success: true, message: 'Order deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+const cancelMyOrder = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('product');
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    if (order.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, error: 'Not authorized to cancel this order' });
+    }
+
+    if (order.status !== 'pending') {
+      return res.status(400).json({ success: false, error: 'Only pending orders can be cancelled' });
+    }
+
+    order.status = 'cancelled';
+    await order.save();
+
+    // Notify the customer
+    try {
+      await Promise.all([
+        sendEmail(order, true),        // pass second arg to indicate cancellation
+        sendSMS(order, true),
+        sendWhatsAppMessage(order, true)
+      ]);
+    } catch (notifyErr) {
+      console.error('❌ Notification failed:', notifyErr.message);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Order cancelled and notifications sent',
+      order
+    });
+
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
 module.exports = {
   placeOrder,
   getAllOrders,
-  getOrderById
+  getOrderById,
+  getMyOrders,
+  cancelMyOrder,
+  updateOrderStatus,
+  deleteOrder
 };
