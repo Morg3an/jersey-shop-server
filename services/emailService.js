@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { RESEND_API_KEY, RESEND_FROM_EMAIL } = process.env;
 
-const formatOrderDetails = (order) => {
+const formatOrderDetails = (order, isCancellation = false) => {
     const {
         _id,
         quantity,
@@ -11,8 +11,9 @@ const formatOrderDetails = (order) => {
         status,
     } = order;
 
-    return `
-🛒 Order #${_id}
+    return isCancellation
+        ? `❌ Your order #${_id} has been cancelled.\nProduct: ${product?.name || 'Unknown'}\nQty: ${quantity}\nStatus: ${status}\n– Jersey Shop`
+        : `🛒 Order #${_id}
 Product: ${product?.name || 'Unknown'}
 Qty: ${quantity}
 Name on Shirt: ${customization?.nameOnShirt || 'N/A'}
@@ -24,19 +25,22 @@ Contact:
 - Phone: ${contact?.phone}
 - WhatsApp: ${contact?.whatsapp}
 
-Status: ${status}
-`;
+Status: ${status}`;
 };
 
-const sendEmail = async (order) => {
+const sendEmail = async (order, isCancellation = false) => {
     try {
+        const subject = isCancellation
+            ? '❌ Order Cancelled – Jersey Shop'
+            : '✅ Order Confirmation – Jersey Shop';
+
         await axios.post(
             'https://api.resend.com/emails',
             {
                 from: RESEND_FROM_EMAIL,
                 to: order.contact.email,
-                subject: '✅ Order Confirmation – Jersey Shop',
-                text: formatOrderDetails(order),
+                subject,
+                text: formatOrderDetails(order, isCancellation),
             },
             {
                 headers: {
@@ -50,6 +54,7 @@ const sendEmail = async (order) => {
     }
 };
 
+// @TODO: Uncomment when shop email functionality is implemented
 /* const sendEmailToShop = async (order) => {
     try {
         await axios.post(
